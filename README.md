@@ -1,6 +1,6 @@
 # Kelly AI Model Project
 
-# WIP **Needs A lot of Work**
+# WIP: **Needs A lot of Work**
 
 ## Overview
 Kelly is a multi-purpose, adaptive AI model. It continuously learns from diverse datasets and user corrections. Key features include:
@@ -31,7 +31,7 @@ Kelly is a multi-purpose, adaptive AI model. It continuously learns from diverse
 2. Install dependencies:
    ```bash
    pip install -r requirements.txt
-  ```
+   ```
 3. Clone the Repo
    ```bash
    git clone https://github.com/kelexine/kelly-model
@@ -42,5 +42,5 @@ Kelly is a multi-purpose, adaptive AI model. It continuously learns from diverse
    python kelly.py
    ```
 ### NOTE
- ** Still in Early Stage of Development **
- ** Contributions are Welcomed **
+ **Still in Early Stage of Development**
+ **Contributions are Welcomed**
