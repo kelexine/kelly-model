@@ -1,0 +1,6 @@
+# status.py
+import time
+
+TRAINING_IN_PROGRESS = False
+TRAINING_START_TIME = None
+ESTIMATED_TIME_REMAINING = None

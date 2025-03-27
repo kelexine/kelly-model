@@ -1,0 +1,14 @@
+torch>=1.9.0
+transformers
+datasets
+flask
+flask-limiter
+scikit-learn
+faiss-cpu
+requests
+SQLAlchemy
+serpapi
+evaluate
+mlflow
+deepspeed
+numpy
