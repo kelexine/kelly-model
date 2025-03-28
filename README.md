@@ -35,15 +35,16 @@ The **Kelly AI Model** is a production-ready solution designed for robust, scala
 1. Create and activate a virtual environment.
    ```bash
    python -m venv myvenv #or whatever name you like
+   source myvenv/bin/activate
    ```
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Clone the Repo
+2. Clone the Repo
    ```bash
    git clone https://github.com/kelexine/kelly-model
    cd kelly-model
+   ```
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
    ```
 4. Start the AI
    ```bash
