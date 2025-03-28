@@ -1,33 +1,29 @@
-# evaluation.py
-"""
-Evaluation module for Kelly AI.
-Uses Hugging Face Trainer to evaluate the model.
-"""
-from transformers import Trainer, TrainingArguments, DataCollatorWithPadding
-from logger_config import setup_logger
-from config import Config
+import numpy as np
+from sklearn.metrics import accuracy_score
+from logger_config import logger
 
-logger = setup_logger("evaluation", "./logs/evaluation.log")
+def compute_metrics(pred):
+    """
+    Computes accuracy metrics.
+    """
+    labels = pred.label_ids
+    preds = pred.predictions.argmax(-1)
+    acc = accuracy_score(labels, preds)
+    logger.info("Evaluation accuracy: %.4f", acc)
+    return {'accuracy': acc}
 
-def evaluate_model(kelly, val_dataset):
-    logger.info("Starting evaluation of Kelly's model.")
+def evaluate_model(trainer, eval_dataset):
+    """
+    Evaluate the model using the provided trainer and evaluation dataset.
+    """
     try:
-        model = kelly.classifier_model
-        data_collator = DataCollatorWithPadding(tokenizer=kelly.tokenizer)
-        training_args = TrainingArguments(
-            output_dir="./results",
-            per_device_eval_batch_size=Config.Training.BATCH_SIZE,
-        )
-        trainer = Trainer(
-            model=model,
-            args=training_args,
-            eval_dataset=val_dataset,
-            tokenizer=kelly.tokenizer,
-            data_collator=data_collator,
-        )
-        metrics = trainer.evaluate()
-        logger.info(f"Evaluation complete. Metrics: {metrics}")
-        return metrics
+        logger.info("Starting evaluation...")
+        results = trainer.evaluate(eval_dataset=eval_dataset)
+        logger.info("Evaluation results: %s", results)
+        return results
     except Exception as e:
-        logger.error(f"Evaluation error: {e}")
-        return {"error": str(e)}
+        logger.error("Error during evaluation", exc_info=True)
+        raise e
+
+if __name__ == '__main__':
+    logger.debug("Evaluation module executed directly.")

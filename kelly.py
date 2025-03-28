@@ -1,112 +1,94 @@
-# kelly.py
-"""
-Main driver script for Kelly AI.
-On first run, the model is sequentially fine-tuned on multiple datasets using dynamic, task-aware preprocessing:
-  - AG News (classification, "text")
-  - English Sentiment Analysis (classification, "text")
-  - English Dictionary (combining "word" and "definition" into "text")
-  - English Jokes (humor, "joke")
-After sequential training, the model is saved.
-A continuous learning loop runs in a background thread to rehearse new corrections (using EWC and a replay buffer),
-marking them as rehearsed to avoid over-fitting.
-During interactive sessions, offline retrieval (via FAISS) supplements model responses.
-The Flask API is deployed with rate limiting. For production, deploy using Gunicorn.
-"""
 import os
-import time
 import threading
-from datasets import Value
-import advanced_preprocessing as ap
-import model
-import training
-import continuous_learning as cl
-from logger_config import setup_logger
-from config import Config
-from dependency_injection import create_kelly
+import time
+from logger_config import logger
+from model import build_model
+from training import train_model
+from preprocessing import Preprocessor
+from flask_api import run_api
+from database import initialize_database
 
-logger = setup_logger("kelly", "./logs/kelly.log")
-TRAINED_MODEL_DIR = Config.MODEL_DIR
+FINETUNED_MODEL_PATH = "./kelly_finetuned"
 
-def interactive_mode(kelly_instance):
-    logger.info("Entering interactive mode. Type your prompt (or 'exit' to quit):")
-    from advanced_offline_retrieval import retrieve_offline_knowledge_faiss
+def interactive_mode(model, tokenizer):
+    logger.info("Entering interactive mode. Type 'exit' to quit.")
+    # Interactive loop: perform inference using the loaded model.
     while True:
-        try:
-            user_input = input("Prompt: ")
-            if user_input.lower() == "exit":
-                break
-            answer = kelly_instance.answer_sophisticated_question(user_input)
-            offline_info = retrieve_offline_knowledge_faiss(user_input, top_k=3)
-            print("Response:", answer)
-            if offline_info:
-                print("\nOffline Knowledge:")
-                for item in offline_info:
-                    print(f"- {item['content']} (Similarity: {item['similarity']:.2f})")
-        except KeyboardInterrupt:
+        user_input = input(">> ")
+        if user_input.lower() in ['exit', 'quit']:
+            logger.info("Exiting interactive mode.")
             break
-
-def start_flask_api():
-    import flask_api  # flask_api.py will call app.run()
-
-def sequential_training(model_instance, datasets_info):
-    for ds in datasets_info:
-        ds_id = ds["id"]
-        config = ds.get("config", {})
-        logger.info(f"Processing dataset {ds_id} with config {config}")
         try:
-            train_ds, val_ds = ap.preprocess_dataset_dynamic(ds_id, config=config, max_length=128)
-            if "label" in train_ds.column_names:
-                train_ds = train_ds.cast_column("label", Value("int64"))
-            if "label" in val_ds.column_names:
-                val_ds = val_ds.cast_column("label", Value("int64"))
-            logger.info(f"Fine-tuning model on dataset {ds_id}...")
-            training.fine_tune_model(model_instance, train_ds, val_ds)
-            logger.info(f"Finished training on dataset {ds_id}. Model updated and saved.")
+            # Tokenize input and perform inference
+            inputs = tokenizer(user_input, return_tensors="pt", truncation=True, padding=True)
+            outputs = model(**inputs)
+            # For classification, get predicted label (argmax) and dummy confidence
+            pred_label = outputs.logits.argmax(dim=1).item()
+            # In a production system, you'd map label indices to actual labels
+            logger.info("Inference result for '%s': Label %s", user_input, pred_label)
+            print(f"Input: {user_input}\nPredicted Label: {pred_label}")
         except Exception as e:
-            logger.error(f"Error during training on dataset {ds_id}: {e}")
+            logger.error("Error during inference", exc_info=True)
+            print("An error occurred during inference.")
 
-def continuous_learning_loop(model_instance, tokenizer, interval_seconds=Config.ContinuousLearning.INTERVAL_SECONDS):
-    while True:
-        try:
-            logger.info("Starting continuous learning cycle...")
-            cl.rehearsal_finetune(model_instance, tokenizer, num_epochs=Config.ContinuousLearning.NUM_EPOCHS, batch_size=Config.ContinuousLearning.BATCH_SIZE)
-            logger.info("Continuous learning cycle complete. Sleeping...")
-        except Exception as e:
-            logger.error(f"Error in continuous learning cycle: {e}")
-        time.sleep(interval_seconds)
+def training_mode():
+    logger.info("Starting training mode.")
+    # Initialize the database
+    initialize_database()
+    # Placeholder: Load a sample dataset. In production, replace with actual data loading.
+    import pandas as pd
+    data = {'text': ["This is great", "This is terrible"], 'label': [1, 0]}
+    dataset = pd.DataFrame(data)
+    preprocessor = Preprocessor()
+    analysis = preprocessor.analyze_dataset(dataset)
+    logger.info("Dataset analysis for training: %s", analysis)
+    # Build model and tokenizer (base model)
+    model, tokenizer = build_model()
+    # Create a dummy torch Dataset for demonstration purposes.
+    from torch.utils.data import Dataset
+
+    class DummyDataset(Dataset):
+        def __init__(self, texts, labels, tokenizer, max_length=128):
+            self.encodings = tokenizer(texts, truncation=True, padding=True, max_length=max_length)
+            self.labels = labels
+
+        def __getitem__(self, idx):
+            item = {key: val[idx] for key, val in self.encodings.items()}
+            item['labels'] = self.labels[idx]
+            return item
+
+        def __len__(self):
+            return len(self.labels)
+
+    dummy_dataset = DummyDataset(dataset['text'].tolist(), dataset['label'].tolist(), tokenizer)
+    # Train model (fine-tuning)
+    train_model(model, tokenizer, dummy_dataset, output_dir=FINETUNED_MODEL_PATH)
+    logger.info("Training mode completed. Fine-tuned model saved to %s", FINETUNED_MODEL_PATH)
+    return model, tokenizer
+
+def start_flask_api_after_delay(delay=20):
+    def delayed_start():
+        logger.info("Waiting %s seconds before starting Flask API...", delay)
+        time.sleep(delay)
+        logger.info("Starting Flask API now.")
+        run_api()
+    thread = threading.Thread(target=delayed_start, daemon=True)
+    thread.start()
 
 def main():
-    logger.info("Starting Kelly AI project (adaptive multi-task training)...")
-    model_exists = os.path.exists(TRAINED_MODEL_DIR) and os.path.exists(os.path.join(TRAINED_MODEL_DIR, "tokenizer_config.json"))
-    kelly_instance = None
-
-    if not model_exists:
-        logger.info("No fine-tuned model found. Starting sequential training on default datasets...")
-        kelly_instance = create_kelly()
-        datasets_info = [
-            {"id": "ag_news", "config": {"task": "classification", "input_fields": ["text"]}},
-            {"id": "Juanid14317/EnglishSentimentAnalysis", "config": {"task": "classification", "input_fields": ["text"]}},
-            {"id": "MAKILINGDING/english_dictionary", "config": {"task": "classification", "input_fields": ["word", "definition"]}},
-            {"id": "kuldin/english_jokes", "config": {"task": "humor", "input_fields": ["joke"]}}
-        ]
-        sequential_training(kelly_instance, datasets_info)
-        logger.info("Sequential training complete. Model saved in './kelly_finetuned'")
+    # Check if a fine-tuned model exists
+    if os.path.exists(FINETUNED_MODEL_PATH) and os.listdir(FINETUNED_MODEL_PATH):
+        logger.info("Fine-tuned model detected. Loading model for interactive inference.")
+        model, tokenizer = build_model(model_path=FINETUNED_MODEL_PATH)
+        start_flask_api_after_delay()
+        interactive_mode(model, tokenizer)
     else:
-        logger.info("Fine-tuned model found. Loading model for interactive mode...")
-        try:
-            from transformers import AutoTokenizer, AutoModelForSequenceClassification
-            tokenizer = AutoTokenizer.from_pretrained(TRAINED_MODEL_DIR)
-            classifier_model = AutoModelForSequenceClassification.from_pretrained(TRAINED_MODEL_DIR)
-            kelly_instance = create_kelly(tokenizer_name=TRAINED_MODEL_DIR, classifier_model_name=TRAINED_MODEL_DIR)
-        except Exception as e:
-            logger.error(f"Error loading fine-tuned model: {e}")
-            return
+        logger.info("No fine-tuned model found. Launching training mode.")
+        model, tokenizer = training_mode()
+        # After training, load the fine-tuned model for interactive inference.
+        model, tokenizer = build_model(model_path=FINETUNED_MODEL_PATH)
+        start_flask_api_after_delay()
+        interactive_mode(model, tokenizer)
 
-    if kelly_instance is not None:
-        cl_thread = threading.Thread(target=continuous_learning_loop, args=(kelly_instance, kelly_instance.tokenizer), daemon=True)
-        cl_thread.start()
-
-    interactive_mode(kelly_instance)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
