@@ -19,24 +19,28 @@ def train_model(model, tokenizer, train_dataset, output_dir="./kelly_finetuned",
     try:
         logger.info("Starting training process...")
 
-        # Define training arguments
+        # Define training arguments.
+        # For load_best_model_at_end to work, evaluation_strategy must match save_strategy.
+        # For demonstration, we use the train_dataset as eval_dataset.
         training_args = TrainingArguments(
             output_dir=output_dir,                        # Directory for model checkpoints and outputs.
             num_train_epochs=num_train_epochs,            # Total number of training epochs.
             per_device_train_batch_size=batch_size,       # Batch size per device during training.
-            evaluation_strategy="no",                     # No evaluation during training in this example.
+            evaluation_strategy="epoch",                  # Evaluate at the end of each epoch.
             save_strategy="epoch",                        # Save checkpoint at the end of each epoch.
             logging_dir='./logs',                         # Directory for storing logs.
             logging_steps=10,                             # Log every 10 steps.
             load_best_model_at_end=True,                  # Load the best model when finished training.
+            metric_for_best_model="loss",                 # Use loss as the metric for determining the best model.
             save_total_limit=2,                           # Limit the total number of saved checkpoints.
         )
 
-        # Initialize the Trainer with the model, tokenizer, and training dataset
+        # Initialize the Trainer with the model, tokenizer, training dataset, and evaluation dataset.
         trainer = Trainer(
             model=model,
             args=training_args,
             train_dataset=train_dataset,
+            eval_dataset=train_dataset,  # For demo purposes. In production, use a proper evaluation dataset.
             tokenizer=tokenizer,
         )
 
